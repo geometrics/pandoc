@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-
 Copyright (C) 2019 John MacFarlane <jgm@berkeley.edu>
 
@@ -31,15 +32,20 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Data structure and JSON serializers for ipynb (Jupyter notebook) format.
 The format is documented here:
 <https://nbformat.readthedocs.io/en/latest/format_description.html>.
+This module encodes version 4 of the spec.
 -}
 module Text.Pandoc.Ipynb ( )
 where
 import Prelude
 import Text.Pandoc.Definition
 import qualified Data.Map as M
+import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.ByteString (ByteString)
-import Data.Aeson
+import Data.Aeson as Aeson
+import qualified Data.Vector as V
+import Control.Applicative ((<|>))
 
 data Notebook = Notebook
   { nbMetadata    :: NotebookMeta
@@ -50,7 +56,7 @@ data Notebook = Notebook
 
 instance FromJSON Notebook where
   parseJSON = withObject "Notebook" $ \v -> Notebook
-     <$> v .: "metadata"
+     <$> (M.map valueToMetaValue <$> v .: "metadata")
      <*> v .: "nbformat"
      <*> v .: "nbformat_minor"
      <*> v .: "cells"
@@ -72,12 +78,30 @@ data Cell = Cell
 } deriving (Show)
 
 instance FromJSON Cell where
-  parseJSON = undefined
+  parseJSON = withObject "Cell" $ \v -> do
+    metadata <- v .: "metadata"
+    source <- v .: "source" <|> (T.unlines <$> v .: "source")
+    -- cellType <- v .: "cell_type"
+    return $ Cell
+      { cellMetadata = M.map valueToMetaValue metadata
+      , cellContents = RawCell source
+      , cellAttachments = mempty -- TODO
+      }
 
 instance ToJSON Cell where
   toJSON = undefined
 
 type CellMeta = M.Map String MetaValue
+
+valueToMetaValue :: Value -> MetaValue
+valueToMetaValue (Object m) =
+  MetaMap $ M.fromList [ (T.unpack k, valueToMetaValue v)
+                       | (k,v) <- HM.toList m ]
+valueToMetaValue (Array v)  = MetaList (map valueToMetaValue (V.toList v))
+valueToMetaValue (String t) = MetaString (T.unpack t)
+valueToMetaValue (Number n) = MetaString (show n)
+valueToMetaValue (Bool b)   = MetaBool b
+valueToMetaValue Aeson.Null = MetaString mempty
 
 data CellContent =
     MarkdownCell [Block]
