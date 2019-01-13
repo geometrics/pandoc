@@ -46,6 +46,18 @@ import Data.Aeson as Aeson
 import qualified Data.Vector as V
 import Control.Applicative ((<|>))
 
+--- for testing only, to remove:
+import qualified Data.ByteString.Lazy as BL
+
+readNotebookFile :: FilePath -> IO Notebook
+readNotebookFile fp = do
+  bs <- BL.readFile fp
+  case eitherDecode bs of
+    Right nb -> return nb
+    Left err -> error err
+---
+
+
 data Notebook = Notebook
   { nbMetadata    :: NotebookMeta
   , nbFormat      :: Int
@@ -201,3 +213,4 @@ instance ToJSON MimeData where
   toJSON (TextualData t) = T.unlines t
   toJSON (JsonData v) = object [ "json" .= v ]
 -}
+
