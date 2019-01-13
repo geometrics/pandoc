@@ -36,7 +36,6 @@ The format is documented here:
 module Text.Pandoc.Ipynb ( )
 where
 import Prelude
-import Text.Pandoc.Definition
 import qualified Data.Map as M
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
@@ -62,7 +61,7 @@ printNotebook = BL.putStr . encode
 
 
 data Notebook = Notebook
-  { nbMetadata    :: NotebookMeta
+  { nbMetadata    :: JSONMeta
   , nbFormat      :: Int
   , nbFormatMinor :: Int
   , nbCells       :: [Cell]
@@ -72,7 +71,7 @@ instance FromJSON Notebook where
   parseJSON = withObject "Notebook" $ \v -> do
      format <- v .: "nbformat"
      formatMinor <- v .: "nbformat_minor"
-     meta <- M.map valueToMetaValue <$> v .: "metadata"
+     meta <- v .: "metadata"
      cells <- if format >= 4
                  then v .: "cells"
                  else do
@@ -97,48 +96,34 @@ instance ToJSON Notebook where
          then [ "cells" .= nbCells nb ]
          else [ "worksheets" .= ([ "cells" .= nbCells nb ] :: [(Text, Value)]) ]
 
-type NotebookMeta = M.Map Text MetaValue
+type JSONMeta = M.Map Text Value
 
 data Cell = Cell
-  { cellType        :: CellType
-  , cellMetadata    :: CellMeta
-  , cellText        :: Text
-  , cellOutputs     :: [CodeOutput]
-  , cellAttachments :: [M.Map Text MimeBundle]
+  { cellType           :: CellType
+  , cellMetadata       :: JSONMeta
+  , cellText           :: Text
+  , cellExecutionCount :: Maybe Int
+  , cellOutputs        :: [Output]
+  , cellAttachments    :: M.Map Text MimeBundle
 } deriving (Show)
 
 instance FromJSON Cell where
-  parseJSON = withObject "Cell" $ \v -> do
-    metadata <- v .: "metadata"
-    source <- v .: "source" <|> (mconcat <$> v .: "source")
-    ctype <- v .: "cell_type"
-    return $ Cell
-      { cellMetadata = M.map valueToMetaValue metadata
-      , cellText = source
-      , cellType = ctype
-      , cellOutputs = mempty -- TODO
-      , cellAttachments = mempty -- TODO
-      }
+  parseJSON = withObject "Cell" $ \v ->
+    Cell
+      <$> v .: "cell_type"
+      <*> v .: "metadata"
+      <*> (v .: "source" <|> (mconcat <$> v .: "source"))
+      <*> v .:? "execution_count"
+      <*> v .:? "outputs" .!= mempty
+      <*> v .:? "attachments" .!= mempty
 
 instance ToJSON Cell where
   toJSON cell =
     object [ "cell_type" .= cellType cell
-           , "source" .= map (<> "\n") (T.lines (cellText cell))
+           , "source" .= toLines (cellText cell)
            , "metadata" .= cellMetadata cell
            , "attachments" .= cellAttachments cell
            , "outputs" .= cellOutputs cell ]
-
-type CellMeta = M.Map String MetaValue
-
-valueToMetaValue :: Value -> MetaValue
-valueToMetaValue (Object m) =
-  MetaMap $ M.fromList [ (T.unpack k, valueToMetaValue v)
-                       | (k,v) <- HM.toList m ]
-valueToMetaValue (Array v)  = MetaList (map valueToMetaValue (V.toList v))
-valueToMetaValue (String t) = MetaString (T.unpack t)
-valueToMetaValue (Number n) = MetaString (show n)
-valueToMetaValue (Bool b)   = MetaBool b
-valueToMetaValue Aeson.Null = MetaString mempty
 
 data CellType =
     MarkdownCell
@@ -152,8 +137,8 @@ instance FromJSON CellType where
   parseJSON (String "raw") = return RawCell
   parseJSON (String "code") = return CodeCell
   parseJSON (String "heading") = return HeadingCell
-  parseJSON (String x) = fail $ "Unknown cell type: " ++ T.unpack x
-  parseJSON _ = fail "Unknown cell type"
+  parseJSON (String x) = fail $ "Unknown cell_type: " ++ T.unpack x
+  parseJSON _ = fail "Unknown cell_type"
 
 instance ToJSON CellType where
   toJSON MarkdownCell = String "markdown"
@@ -161,41 +146,59 @@ instance ToJSON CellType where
   toJSON CodeCell = String "code"
   toJSON HeadingCell = String "heading"
 
-data CodeOutput = CodeOutput
-  { codeExecutionCount :: Int
-  , codeOutputs        :: [Output]
-  } deriving (Show)
-
-instance FromJSON CodeOutput where
-  parseJSON = undefined
-
-instance ToJSON CodeOutput where
-  toJSON = undefined
-
-data Output =
-    StreamOutput
-    { streamType   :: Text
-    , streamText   :: Text
-    }
+data OutputType =
+    Stream
   | DisplayData
-  | ExecuteResults
-    { executeCount    :: Int
-    , executeData     :: MimeBundle
-    , executeMetadata :: MimeMetadata
-    }
+  | ExecuteResult
   deriving (Show)
 
-instance FromJSON Output where
-  parseJSON = undefined
+instance FromJSON OutputType where
+  parseJSON (String "stream") = return Stream
+  parseJSON (String "display_data") = return DisplayData
+  parseJSON (String "execute_result") = return ExecuteResult
+  parseJSON (String x) = fail $ "Unknown output_type: " ++ T.unpack x
+  parseJSON _ = fail "Unknown output_type"
+-- TODO what about pyout? v3
 
+instance ToJSON OutputType where
+  toJSON Stream = String "stream"
+  toJSON DisplayData = String "display_data"
+  toJSON ExecuteResult = String "execute_result"
+
+data Output = Output{
+    outputType         :: OutputType
+  , outputText         :: Maybe Text
+  , outputName         :: Maybe Text
+  , outputData         :: Maybe (M.Map MimeType MimeData)
+  , outputMetadata     :: Maybe (M.Map MimeType JSONMeta)
+  , outputExecuteCount :: Maybe Int
+  } deriving (Show)
+
+instance FromJSON Output where
+  parseJSON = withObject "Output" $ \v ->
+    Output
+      <$> v .: "output_type"
+      <*> v .:? "text"
+      <*> v .:? "name"
+      <*> v .:? "data"
+      <*> v .:? "metadata"
+      <*> v .:? "execution_count"
+      
 instance ToJSON Output where
-  toJSON = undefined
+  toJSON o = object $
+    ("output_type" .= (outputType o)) :
+    maybe [] (\x -> ["text" .= x]) (outputText o) ++
+    maybe [] (\x -> ["name" .= x]) (outputName o) ++
+    maybe [] (\x -> ["data" .= x]) (outputData o) ++
+    maybe [] (\x -> ["metadata" .= x]) (outputMetadata o) ++
+    maybe [] (\x -> ["execution_count" .= x]) (outputMetadata o)
 
 type MimeType = Text
 
-type MimeMetadata = M.Map MimeType MetaValue
-
-newtype MimeBundle = MimeBundle [MimeData]
+data MimeBundle = MimeBundle
+  { mimeData        :: M.Map MimeType MimeData
+  , mimeMetadata    :: M.Map MimeType JSONMeta
+  }
   deriving (Show)
 
 instance FromJSON MimeBundle where
@@ -210,13 +213,26 @@ data MimeData =
   | JsonData Value
   deriving (Show)
 
-{-
 instance FromJSON MimeData where
   parseJSON = withObject "MimeData" $ \v -> undefined
 
 instance ToJSON MimeData where
-  toJSON (BinaryData MimeType bs) = undefined -- convert to base64
-  toJSON (TextualData t) = T.unlines t
+  toJSON (BinaryData mime bs) = undefined -- convert to base64
+  toJSON (TextualData t) = toJSON (toLines t)
   toJSON (JsonData v) = object [ "json" .= v ]
+
+toLines :: Text -> [Text]
+toLines = map (<> "\n") . T.lines
+
+{- -- for pandoc conversion, move:
+valueToMetaValue :: Value -> MetaValue
+valueToMetaValue (Object m) =
+  MetaMap $ M.fromList [ (T.unpack k, valueToMetaValue v)
+                       | (k,v) <- HM.toList m ]
+valueToMetaValue (Array v)  = MetaList (map valueToMetaValue (V.toList v))
+valueToMetaValue (String t) = MetaString (T.unpack t)
+valueToMetaValue (Number n) = MetaString (show n)
+valueToMetaValue (Bool b)   = MetaBool b
+valueToMetaValue Aeson.Null = MetaString mempty
 -}
 
