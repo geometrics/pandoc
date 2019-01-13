@@ -32,7 +32,9 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Data structure and JSON serializers for ipynb (Jupyter notebook) format.
 The format is documented here:
 <https://nbformat.readthedocs.io/en/latest/format_description.html>.
-This module encodes version 4 of the spec.
+This module so far only works with version 4 of the spec.
+
+TODO: handle version 3.
 -}
 module Text.Pandoc.Ipynb ( )
 where
@@ -57,9 +59,13 @@ data Notebook = Notebook
 instance FromJSON Notebook where
   parseJSON = withObject "Notebook" $ \v -> Notebook
      <$> (M.map valueToMetaValue <$> v .: "metadata")
-     <*> v .: "nbformat"
+     <*> (v .: "nbformat" >>= checkVersion)
      <*> v .: "nbformat_minor"
      <*> v .: "cells"
+
+checkVersion :: Monad m => Int -> m Int
+checkVersion 4 = return 4
+checkVersion _ = fail "Only version 4 of ipynb is supported currently"
 
 instance ToJSON Notebook where
   toJSON nb =
