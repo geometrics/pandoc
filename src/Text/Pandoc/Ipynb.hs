@@ -39,11 +39,12 @@ module Text.Pandoc.Ipynb ( )
 where
 import Prelude
 import qualified Data.Map as M
-import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text as T
 import Data.ByteString (ByteString)
 import Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
 import qualified Data.Vector as V
 import Control.Applicative ((<|>))
 import Control.Monad (when)
@@ -98,8 +99,8 @@ data Cell = Cell
   , cellMetadata       :: JSONMeta
   , cellText           :: Text
   , cellExecutionCount :: Maybe Int
-  , cellOutputs        :: [Output]
-  , cellAttachments    :: M.Map Text MimeBundle
+  , cellOutputs        :: Maybe [Output]
+  , cellAttachments    :: Maybe MimeBundle
 } deriving (Show)
 
 instance FromJSON Cell where
@@ -109,8 +110,8 @@ instance FromJSON Cell where
       <*> v .: "metadata"
       <*> (v .: "source" <|> (mconcat <$> v .: "source"))
       <*> v .:? "execution_count"
-      <*> v .:? "outputs" .!= mempty
-      <*> v .:? "attachments" .!= mempty
+      <*> v .:? "outputs"
+      <*> v .:? "attachments"
 
 instance ToJSON Cell where
   toJSON cell =
@@ -118,7 +119,8 @@ instance ToJSON Cell where
            , "source" .= toLines (cellText cell)
            , "metadata" .= cellMetadata cell
            , "attachments" .= cellAttachments cell
-           , "outputs" .= cellOutputs cell ]
+           , "outputs" .= cellOutputs cell
+           ]
 
 data CellType =
     MarkdownCell
@@ -156,11 +158,14 @@ instance ToJSON OutputType where
   toJSON DisplayData = String "display_data"
   toJSON ExecuteResult = String "execute_result"
 
+newtype MimeBundle = MimeBundle{ unMimeBundle :: M.Map MimeType MimeData }
+  deriving (Show)
+
 data Output = Output{
     outputType         :: OutputType
   , outputText         :: Maybe Text
   , outputName         :: Maybe Text
-  , outputData         :: Maybe (M.Map MimeType MimeData)
+  , outputData         :: Maybe MimeBundle
   , outputMetadata     :: Maybe (M.Map MimeType JSONMeta)
   , outputExecuteCount :: Maybe Int
   } deriving (Show)
@@ -174,7 +179,12 @@ instance FromJSON Output where
       <*> v .:? "data"
       <*> v .:? "metadata"
       <*> v .:? "execution_count"
-      
+
+mimeDataToPair :: MimeData -> (MimeType, MimeData)
+mimeDataToPair x@(BinaryData mt _) = (mt, x)
+mimeDataToPair x@(TextualData t) = ("text/plain", x)
+mimeDataToPair x@(JsonData v) = ("text/json", x)
+
 instance ToJSON Output where
   toJSON o = object $
     ("output_type" .= (outputType o)) :
@@ -186,31 +196,33 @@ instance ToJSON Output where
 
 type MimeType = Text
 
-data MimeBundle = MimeBundle
-  { mimeData        :: M.Map MimeType MimeData
-  , mimeMetadata    :: M.Map MimeType JSONMeta
-  }
-  deriving (Show)
-
-instance FromJSON MimeBundle where
-  parseJSON = undefined
-
-instance ToJSON MimeBundle where
-  toJSON = undefined
-
 data MimeData =
     BinaryData MimeType ByteString
   | TextualData Text
   | JsonData Value
   deriving (Show)
 
-instance FromJSON MimeData where
-  parseJSON = withObject "MimeData" $ \v -> undefined
+instance FromJSON MimeBundle where
+  parseJSON v = do
+    m <- parseJSON v >>= mapM pairToMimeData . M.toList
+    return $ MimeBundle $ M.fromList m
 
-instance ToJSON MimeData where
+pairToMimeData :: (MimeType, Value) -> Aeson.Parser (MimeType, MimeData)
+pairToMimeData ("text/plain", v) = do
+  t <- parseJSON v <|> (mconcat <$> parseJSON v)
+  return $ ("text/plain", TextualData t)
+pairToMimeData ("text/json", v) = return $ ("text/json", JsonData v)
+pairToMimeData (mt, v) = do
+  t <- parseJSON v <|> (mconcat <$> parseJSON v)
+  return (mt, BinaryData mt (TE.encodeUtf8 t))
+
+instance ToJSON MimeBundle where
+  toJSON = undefined
+  {-
   toJSON (BinaryData mime bs) = undefined -- convert to base64
   toJSON (TextualData t) = toJSON (toLines t)
   toJSON (JsonData v) = object [ "json" .= v ]
+-}
 
 toLines :: Text -> [Text]
 toLines = map (<> "\n") . T.lines
