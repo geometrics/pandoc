@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-
 Copyright (C) 2019 John MacFarlane <jgm@berkeley.edu>
@@ -49,6 +50,8 @@ import qualified Data.Vector as V
 import Control.Applicative ((<|>))
 import Control.Monad (when)
 import qualified Data.ByteString.Base64 as Base64
+import GHC.Generics
+import Data.Char (toLower)
 
 --- for testing only, to remove:
 import qualified Data.ByteString.Lazy as BL
@@ -63,137 +66,91 @@ readNotebookFile fp = do
 writeNotebookFile :: FilePath -> Notebook -> IO ()
 writeNotebookFile fp = BL.writeFile fp . encode
 ---
-
+customOptions = defaultOptions
+                { fieldLabelModifier = drop 2
+                , omitNothingFields = True
+                , constructorTagModifier = map toLower
+                }
 
 data Notebook = Notebook
-  { nbMetadata    :: JSONMeta
-  , nbFormat      :: Int
-  , nbFormatMinor :: Int
-  , nbCells       :: [Cell]
-  } deriving (Show)
+  { n_metadata     :: JSONMeta
+  , n_format       :: Maybe Int
+  , n_format_minor :: Maybe Int
+  , n_cells        :: [Cell]
+  } deriving (Show, Generic)
 
 instance FromJSON Notebook where
-  parseJSON = withObject "Notebook" $ \v -> do
-     format <- v .: "nbformat"
-     when (format /= 4) $ fail "Only v4 of the nbconvert format is supported" 
-     formatMinor <- v .: "nbformat_minor"
-     meta <- v .: "metadata"
-     cells <- v .: "cells"
-     return Notebook
-      { nbMetadata    = meta
-      , nbFormat      = format
-      , nbFormatMinor = formatMinor
-      , nbCells       = cells }
+  parseJSON = genericParseJSON customOptions
 
 instance ToJSON Notebook where
-  toJSON nb =
-    object $
-      [ "metadata" .= nbMetadata nb
-      , "nbformat" .= nbFormat nb
-      , "nbformat_minor" .= nbFormatMinor nb
-      , "cells" .= nbCells nb ]
+ toEncoding = genericToEncoding customOptions
 
 type JSONMeta = M.Map Text Value
 
+newtype Source = Source{ unSource :: [Text] }
+  deriving (Show, Generic)
+
+instance FromJSON Source where
+  parseJSON v = do
+    ts <- parseJSON v <|> (:[]) <$> parseJSON v
+    return $ Source ts
+
+instance ToJSON Source where
+  toJSON (Source ts) = toJSON ts
+
 data Cell = Cell
-  { cellType           :: CellType
-  , cellMetadata       :: JSONMeta
-  , cellText           :: Text
-  , cellExecutionCount :: Maybe Int
-  , cellOutputs        :: Maybe [Output]
-  , cellAttachments    :: Maybe MimeBundle
-} deriving (Show)
+  { c_cell_type        :: CellType
+  , c_source           :: Source
+  , c_metadata         :: Maybe JSONMeta
+  , c_execution_count  :: Maybe Int
+  , c_outputs          :: Maybe [Output]
+  , c_attachments      :: Maybe MimeBundle
+} deriving (Show, Generic)
 
 instance FromJSON Cell where
-  parseJSON = withObject "Cell" $ \v ->
-    Cell
-      <$> v .: "cell_type"
-      <*> v .: "metadata"
-      <*> (v .: "source" <|> (mconcat <$> v .: "source"))
-      <*> v .:? "execution_count"
-      <*> v .:? "outputs"
-      <*> v .:? "attachments"
+  parseJSON = genericParseJSON customOptions
 
 instance ToJSON Cell where
-  toJSON cell =
-    object [ "cell_type" .= cellType cell
-           , "source" .= toLines (cellText cell)
-           , "metadata" .= cellMetadata cell
-           , "attachments" .= cellAttachments cell
-           , "outputs" .= cellOutputs cell
-           ]
+ toEncoding = genericToEncoding customOptions
 
 data CellType =
-    MarkdownCell
-  | RawCell
-  | CodeCell
-  deriving (Show)
+    Markdown
+  | Raw
+  | Code
+  deriving (Show, Generic)
 
 instance FromJSON CellType where
-  parseJSON (String "markdown") = return MarkdownCell
-  parseJSON (String "raw") = return RawCell
-  parseJSON (String "code") = return CodeCell
-  parseJSON (String x) = fail $ "Unknown cell_type: " ++ T.unpack x
-  parseJSON _ = fail "Unknown cell_type"
+  parseJSON = genericParseJSON customOptions
 
 instance ToJSON CellType where
-  toJSON MarkdownCell = String "markdown"
-  toJSON RawCell = String "raw"
-  toJSON CodeCell = String "code"
+ toEncoding = genericToEncoding customOptions
 
 data OutputType =
     Stream
-  | DisplayData
-  | ExecuteResult
-  deriving (Show)
+  | Display_data
+  | Execute_result
+  deriving (Show, Generic)
 
 instance FromJSON OutputType where
-  parseJSON (String "stream") = return Stream
-  parseJSON (String "display_data") = return DisplayData
-  parseJSON (String "execute_result") = return ExecuteResult
-  parseJSON (String x) = fail $ "Unknown output_type: " ++ T.unpack x
-  parseJSON _ = fail "Unknown output_type"
+  parseJSON = genericParseJSON customOptions
 
 instance ToJSON OutputType where
-  toJSON Stream = String "stream"
-  toJSON DisplayData = String "display_data"
-  toJSON ExecuteResult = String "execute_result"
-
-newtype MimeBundle = MimeBundle{ unMimeBundle :: M.Map MimeType MimeData }
-  deriving (Show)
+ toEncoding = genericToEncoding customOptions
 
 data Output = Output{
-    outputType         :: OutputType
-  , outputText         :: Maybe Text
-  , outputName         :: Maybe Text
-  , outputData         :: Maybe MimeBundle
-  , outputMetadata     :: Maybe (M.Map MimeType JSONMeta)
-  , outputExecuteCount :: Maybe Int
-  } deriving (Show)
+    o_output_type      :: OutputType
+  , o_name             :: Maybe Text
+  , o_text             :: Maybe Text
+  , o_data             :: Maybe MimeBundle
+  , o_metadata         :: Maybe (M.Map MimeType JSONMeta)
+  , o_executable_count :: Maybe Int
+  } deriving (Show, Generic)
 
 instance FromJSON Output where
-  parseJSON = withObject "Output" $ \v ->
-    Output
-      <$> v .: "output_type"
-      <*> v .:? "text"
-      <*> v .:? "name"
-      <*> v .:? "data"
-      <*> v .:? "metadata"
-      <*> v .:? "execution_count"
-
-mimeDataToPair :: MimeData -> (MimeType, MimeData)
-mimeDataToPair x@(BinaryData mt _) = (mt, x)
-mimeDataToPair x@(TextualData t) = ("text/plain", x)
-mimeDataToPair x@(JsonData v) = ("text/json", x)
+  parseJSON = genericParseJSON customOptions
 
 instance ToJSON Output where
-  toJSON o = object $
-    ("output_type" .= (outputType o)) :
-    maybe [] (\x -> ["text" .= x]) (outputText o) ++
-    maybe [] (\x -> ["name" .= x]) (outputName o) ++
-    maybe [] (\x -> ["data" .= x]) (outputData o) ++
-    maybe [] (\x -> ["metadata" .= x]) (outputMetadata o) ++
-    maybe [] (\x -> ["execution_count" .= x]) (outputMetadata o)
+ toEncoding = genericToEncoding customOptions
 
 type MimeType = Text
 
@@ -201,7 +158,10 @@ data MimeData =
     BinaryData MimeType ByteString
   | TextualData Text
   | JsonData Value
-  deriving (Show)
+  deriving (Show, Generic)
+
+newtype MimeBundle = MimeBundle{ unMimeBundle :: M.Map MimeType MimeData }
+  deriving (Show, Generic)
 
 instance FromJSON MimeBundle where
   parseJSON v = do
