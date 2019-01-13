@@ -57,15 +57,22 @@ data Notebook = Notebook
   } deriving (Show)
 
 instance FromJSON Notebook where
-  parseJSON = withObject "Notebook" $ \v -> Notebook
-     <$> (M.map valueToMetaValue <$> v .: "metadata")
-     <*> (v .: "nbformat" >>= checkVersion)
-     <*> v .: "nbformat_minor"
-     <*> v .: "cells"
-
-checkVersion :: Monad m => Int -> m Int
-checkVersion 4 = return 4
-checkVersion _ = fail "Only version 4 of ipynb is supported currently"
+  parseJSON = withObject "Notebook" $ \v -> do
+     format <- v .: "nbformat"
+     formatMinor <- v .: "nbformat_minor"
+     meta <- M.map valueToMetaValue <$> v .: "metadata"
+     cells <- if format >= 4
+                 then v .: "cells"
+                 else do
+                   (worksheets :: [Object]) <- v .: "worksheets"
+                   -- collapse multiple worksheets into one
+                   concat <$>
+                     mapM (\worksheet -> worksheet .: "cells") worksheets
+     return Notebook
+      { nbMetadata    = meta
+      , nbFormat      = format
+      , nbFormatMinor = formatMinor
+      , nbCells       = cells }
 
 instance ToJSON Notebook where
   toJSON nb =
@@ -75,7 +82,7 @@ instance ToJSON Notebook where
            , "cells" .= nbCells nb
            ]
 
-type NotebookMeta = M.Map String MetaValue
+type NotebookMeta = M.Map Text MetaValue
 
 data Cell = Cell
   { cellMetadata    :: CellMeta
