@@ -32,6 +32,8 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Data structure and JSON serializers for ipynb (Jupyter notebook) format.
 The format is documented here:
 <https://nbformat.readthedocs.io/en/latest/format_description.html>.
+We only support v4.  To convert an older notebook to v4 use nbconvert:
+@ipython nbconvert --to=notebook testnotebook.ipynb@.
 -}
 module Text.Pandoc.Ipynb ( )
 where
@@ -44,6 +46,7 @@ import Data.ByteString (ByteString)
 import Data.Aeson as Aeson
 import qualified Data.Vector as V
 import Control.Applicative ((<|>))
+import Control.Monad (when)
 
 --- for testing only, to remove:
 import qualified Data.ByteString.Lazy as BL
@@ -70,15 +73,10 @@ data Notebook = Notebook
 instance FromJSON Notebook where
   parseJSON = withObject "Notebook" $ \v -> do
      format <- v .: "nbformat"
+     when (format /= 4) $ fail "Only v4 of the nbconvert format is supported" 
      formatMinor <- v .: "nbformat_minor"
      meta <- v .: "metadata"
-     cells <- if format >= 4
-                 then v .: "cells"
-                 else do
-                   (worksheets :: [Object]) <- v .: "worksheets"
-                   -- collapse multiple worksheets into one
-                   concat <$>
-                     mapM (\worksheet -> worksheet .: "cells") worksheets
+     cells <- v .: "cells"
      return Notebook
       { nbMetadata    = meta
       , nbFormat      = format
@@ -91,10 +89,7 @@ instance ToJSON Notebook where
       [ "metadata" .= nbMetadata nb
       , "nbformat" .= nbFormat nb
       , "nbformat_minor" .= nbFormatMinor nb
-      ] ++
-      if nbFormat nb >= 4
-         then [ "cells" .= nbCells nb ]
-         else [ "worksheets" .= ([ "cells" .= nbCells nb ] :: [(Text, Value)]) ]
+      , "cells" .= nbCells nb ]
 
 type JSONMeta = M.Map Text Value
 
@@ -129,14 +124,12 @@ data CellType =
     MarkdownCell
   | RawCell
   | CodeCell
-  | HeadingCell -- v3 only
   deriving (Show)
 
 instance FromJSON CellType where
   parseJSON (String "markdown") = return MarkdownCell
   parseJSON (String "raw") = return RawCell
   parseJSON (String "code") = return CodeCell
-  parseJSON (String "heading") = return HeadingCell
   parseJSON (String x) = fail $ "Unknown cell_type: " ++ T.unpack x
   parseJSON _ = fail "Unknown cell_type"
 
@@ -144,7 +137,6 @@ instance ToJSON CellType where
   toJSON MarkdownCell = String "markdown"
   toJSON RawCell = String "raw"
   toJSON CodeCell = String "code"
-  toJSON HeadingCell = String "heading"
 
 data OutputType =
     Stream
@@ -158,7 +150,6 @@ instance FromJSON OutputType where
   parseJSON (String "execute_result") = return ExecuteResult
   parseJSON (String x) = fail $ "Unknown output_type: " ++ T.unpack x
   parseJSON _ = fail "Unknown output_type"
--- TODO what about pyout? v3
 
 instance ToJSON OutputType where
   toJSON Stream = String "stream"
