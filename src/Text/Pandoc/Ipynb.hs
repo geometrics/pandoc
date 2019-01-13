@@ -60,8 +60,8 @@ readNotebookFile fp = do
     Right nb -> return nb
     Left err -> error err
 
-printNotebook :: Notebook -> IO ()
-printNotebook = BL.putStr . encode
+writeNotebookFile :: FilePath -> Notebook -> IO ()
+writeNotebookFile fp = BL.writeFile fp . encode
 ---
 
 
@@ -218,12 +218,13 @@ pairToMimeData (mt, v) = do
   return (mt, BinaryData mt (Base64.decodeLenient . TE.encodeUtf8 $ t))
 
 instance ToJSON MimeBundle where
-  toJSON = undefined
-  {-
-  toJSON (BinaryData mime bs) = undefined -- convert to base64
-  toJSON (TextualData t) = toJSON (toLines t)
-  toJSON (JsonData v) = object [ "json" .= v ]
--}
+  toJSON (MimeBundle m) =
+    let mimeBundleToValue (BinaryData mt bs) =
+          toJSON (toLines $ TE.decodeUtf8 $ Base64.joinWith "\n" 64 $
+                  Base64.encode bs)
+        mimeBundleToValue (JsonData v) = v
+        mimeBundleToValue (TextualData t) = toJSON (toLines t)
+    in  toJSON $ M.map mimeBundleToValue m
 
 toLines :: Text -> [Text]
 toLines = map (<> "\n") . T.lines
