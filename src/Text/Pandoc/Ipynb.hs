@@ -55,6 +55,9 @@ readNotebookFile fp = do
   case eitherDecode bs of
     Right nb -> return nb
     Left err -> error err
+
+printNotebook :: Notebook -> IO ()
+printNotebook = BL.putStr . encode
 ---
 
 
@@ -141,12 +144,14 @@ data CellType =
     MarkdownCell
   | RawCell
   | CodeCell
+  | HeadingCell -- v3 only
   deriving (Show)
 
 instance FromJSON CellType where
   parseJSON (String "markdown") = return MarkdownCell
   parseJSON (String "raw") = return RawCell
   parseJSON (String "code") = return CodeCell
+  parseJSON (String "heading") = return HeadingCell
   parseJSON (String x) = fail $ "Unknown cell type: " ++ T.unpack x
   parseJSON _ = fail "Unknown cell type"
 
@@ -154,6 +159,7 @@ instance ToJSON CellType where
   toJSON MarkdownCell = String "markdown"
   toJSON RawCell = String "raw"
   toJSON CodeCell = String "code"
+  toJSON HeadingCell = String "heading"
 
 data CodeOutput = CodeOutput
   { codeExecutionCount :: Int
