@@ -85,29 +85,33 @@ instance ToJSON Notebook where
 type NotebookMeta = M.Map Text MetaValue
 
 data Cell = Cell
-  { cellMetadata    :: CellMeta
-  , cellContents    :: CellContent
+  { cellType        :: CellType
+  , cellMetadata    :: CellMeta
+  , cellText        :: Text
+  , cellOutputs     :: [CodeOutput]
   , cellAttachments :: [M.Map Text MimeBundle]
 } deriving (Show)
 
 instance FromJSON Cell where
   parseJSON = withObject "Cell" $ \v -> do
     metadata <- v .: "metadata"
-    source <- v .: "source" <|> (T.unlines <$> v .: "source")
-    cellType <- v .: "cell_type"
-    contents <- case cellType of
-                 "raw"      -> return $ RawCell source
-                 "markdown" -> undefined
-                 "code"     -> undefined
-                 _          -> fail $ "Unknown cell type: " ++ cellType
+    source <- v .: "source" <|> (mconcat <$> v .: "source")
+    ctype <- v .: "cell_type"
     return $ Cell
       { cellMetadata = M.map valueToMetaValue metadata
-      , cellContents = contents
+      , cellText = source
+      , cellType = ctype
+      , cellOutputs = mempty -- TODO
       , cellAttachments = mempty -- TODO
       }
 
 instance ToJSON Cell where
-  toJSON = undefined
+  toJSON cell =
+    object [ "cell_type" .= cellType cell
+           , "source" .= map (<> "\n") (T.lines (cellText cell))
+           , "metadata" .= cellMetadata cell
+           , "attachments" .= cellAttachments cell
+           , "outputs" .= cellOutputs cell ]
 
 type CellMeta = M.Map String MetaValue
 
@@ -121,23 +125,36 @@ valueToMetaValue (Number n) = MetaString (show n)
 valueToMetaValue (Bool b)   = MetaBool b
 valueToMetaValue Aeson.Null = MetaString mempty
 
-data CellContent =
-    MarkdownCell [Block]
-  | RawCell Text
+data CellType =
+    MarkdownCell
+  | RawCell
   | CodeCell
-  { codeText           :: Text
-  , codeExecutionCount :: Int
-  , codeOutputs        :: [CodeOutput]
-  }
   deriving (Show)
 
-instance FromJSON CellContent where
+instance FromJSON CellType where
+  parseJSON (String "markdown") = return MarkdownCell
+  parseJSON (String "raw") = return RawCell
+  parseJSON (String "code") = return CodeCell
+  parseJSON (String x) = fail $ "Unknown cell type: " ++ T.unpack x
+  parseJSON _ = fail "Unknown cell type"
+
+instance ToJSON CellType where
+  toJSON MarkdownCell = String "markdown"
+  toJSON RawCell = String "raw"
+  toJSON CodeCell = String "code"
+
+data CodeOutput = CodeOutput
+  { codeExecutionCount :: Int
+  , codeOutputs        :: [Output]
+  } deriving (Show)
+
+instance FromJSON CodeOutput where
   parseJSON = undefined
 
-instance ToJSON CellContent where
+instance ToJSON CodeOutput where
   toJSON = undefined
 
-data CodeOutput =
+data Output =
     StreamOutput
     { streamType   :: Text
     , streamText   :: Text
@@ -150,10 +167,10 @@ data CodeOutput =
     }
   deriving (Show)
 
-instance FromJSON CodeOutput where
+instance FromJSON Output where
   parseJSON = undefined
 
-instance ToJSON CodeOutput where
+instance ToJSON Output where
   toJSON = undefined
 
 type MimeType = Text
@@ -184,4 +201,3 @@ instance ToJSON MimeData where
   toJSON (TextualData t) = T.unlines t
   toJSON (JsonData v) = object [ "json" .= v ]
 -}
-
