@@ -32,9 +32,6 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Data structure and JSON serializers for ipynb (Jupyter notebook) format.
 The format is documented here:
 <https://nbformat.readthedocs.io/en/latest/format_description.html>.
-This module so far only works with version 4 of the spec.
-
-TODO: handle version 3.
 -}
 module Text.Pandoc.Ipynb ( )
 where
@@ -76,11 +73,14 @@ instance FromJSON Notebook where
 
 instance ToJSON Notebook where
   toJSON nb =
-    object [ "metadata" .= nbMetadata nb
-           , "nbformat" .= nbFormat nb
-           , "nbformat_minor" .= nbFormatMinor nb
-           , "cells" .= nbCells nb
-           ]
+    object $
+      [ "metadata" .= nbMetadata nb
+      , "nbformat" .= nbFormat nb
+      , "nbformat_minor" .= nbFormatMinor nb
+      ] ++
+      if nbFormat nb >= 4
+         then [ "cells" .= nbCells nb ]
+         else [ "worksheets" .= ([ "cells" .= nbCells nb ] :: [(Text, Value)]) ]
 
 type NotebookMeta = M.Map Text MetaValue
 
@@ -94,10 +94,15 @@ instance FromJSON Cell where
   parseJSON = withObject "Cell" $ \v -> do
     metadata <- v .: "metadata"
     source <- v .: "source" <|> (T.unlines <$> v .: "source")
-    -- cellType <- v .: "cell_type"
+    cellType <- v .: "cell_type"
+    contents <- case cellType of
+                 "raw"      -> return $ RawCell source
+                 "markdown" -> undefined
+                 "code"     -> undefined
+                 _          -> fail $ "Unknown cell type: " ++ cellType
     return $ Cell
       { cellMetadata = M.map valueToMetaValue metadata
-      , cellContents = RawCell source
+      , cellContents = contents
       , cellAttachments = mempty -- TODO
       }
 
