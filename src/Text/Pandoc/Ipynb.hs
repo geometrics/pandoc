@@ -48,28 +48,26 @@ import Control.Applicative ((<|>))
 --- for testing only, to remove:
 import qualified Data.ByteString.Lazy as BL
 
-readNotebookFile :: FilePath -> IO (Notebook a)
+readNotebookFile :: FilePath -> IO Notebook
 readNotebookFile fp = do
   bs <- BL.readFile fp
   case eitherDecode bs of
     Right nb -> return nb
     Left err -> error err
 
-printNotebook :: Notebook a -> IO ()
+printNotebook :: Notebook -> IO ()
 printNotebook = BL.putStr . encode
 ---
 
-data NbVer3
-data NbVer4
 
-data Notebook a = Notebook
+data Notebook = Notebook
   { nbMetadata    :: JSONMeta
   , nbFormat      :: Int
   , nbFormatMinor :: Int
-  , nbCells       :: [Cell a]
+  , nbCells       :: [Cell]
   } deriving (Show)
 
-instance FromJSON (Notebook a) where
+instance FromJSON Notebook where
   parseJSON = withObject "Notebook" $ \v -> do
      format <- v .: "nbformat"
      formatMinor <- v .: "nbformat_minor"
@@ -87,7 +85,7 @@ instance FromJSON (Notebook a) where
       , nbFormatMinor = formatMinor
       , nbCells       = cells }
 
-instance ToJSON (Notebook a) where
+instance ToJSON Notebook where
   toJSON nb =
     object $
       [ "metadata" .= nbMetadata nb
@@ -100,16 +98,16 @@ instance ToJSON (Notebook a) where
 
 type JSONMeta = M.Map Text Value
 
-data Cell a = Cell
-  { cellType           :: CellType a
+data Cell = Cell
+  { cellType           :: CellType
   , cellMetadata       :: JSONMeta
   , cellText           :: Text
   , cellExecutionCount :: Maybe Int
-  , cellOutputs        :: [Output a]
+  , cellOutputs        :: [Output]
   , cellAttachments    :: M.Map Text MimeBundle
 } deriving (Show)
 
-instance FromJSON (Cell a) where
+instance FromJSON Cell where
   parseJSON = withObject "Cell" $ \v ->
     Cell
       <$> v .: "cell_type"
@@ -119,7 +117,7 @@ instance FromJSON (Cell a) where
       <*> v .:? "outputs" .!= mempty
       <*> v .:? "attachments" .!= mempty
 
-instance ToJSON (Cell a) where
+instance ToJSON Cell where
   toJSON cell =
     object [ "cell_type" .= cellType cell
            , "source" .= toLines (cellText cell)
@@ -127,14 +125,14 @@ instance ToJSON (Cell a) where
            , "attachments" .= cellAttachments cell
            , "outputs" .= cellOutputs cell ]
 
-data CellType a =
+data CellType =
     MarkdownCell
   | RawCell
   | CodeCell
   | HeadingCell -- v3 only
   deriving (Show)
 
-instance FromJSON (CellType a) where
+instance FromJSON CellType where
   parseJSON (String "markdown") = return MarkdownCell
   parseJSON (String "raw") = return RawCell
   parseJSON (String "code") = return CodeCell
@@ -142,19 +140,19 @@ instance FromJSON (CellType a) where
   parseJSON (String x) = fail $ "Unknown cell_type: " ++ T.unpack x
   parseJSON _ = fail "Unknown cell_type"
 
-instance ToJSON (CellType a) where
+instance ToJSON CellType where
   toJSON MarkdownCell = String "markdown"
   toJSON RawCell = String "raw"
   toJSON CodeCell = String "code"
   toJSON HeadingCell = String "heading"
 
-data OutputType a =
+data OutputType =
     Stream
   | DisplayData
   | ExecuteResult
   deriving (Show)
 
-instance FromJSON (OutputType a) where
+instance FromJSON OutputType where
   parseJSON (String "stream") = return Stream
   parseJSON (String "display_data") = return DisplayData
   parseJSON (String "execute_result") = return ExecuteResult
@@ -162,13 +160,13 @@ instance FromJSON (OutputType a) where
   parseJSON _ = fail "Unknown output_type"
 -- TODO what about pyout? v3
 
-instance ToJSON (OutputType a) where
+instance ToJSON OutputType where
   toJSON Stream = String "stream"
   toJSON DisplayData = String "display_data"
   toJSON ExecuteResult = String "execute_result"
 
-data Output a = Output{
-    outputType         :: OutputType a
+data Output = Output{
+    outputType         :: OutputType
   , outputText         :: Maybe Text
   , outputName         :: Maybe Text
   , outputData         :: Maybe (M.Map MimeType MimeData)
@@ -176,7 +174,7 @@ data Output a = Output{
   , outputExecuteCount :: Maybe Int
   } deriving (Show)
 
-instance FromJSON (Output a) where
+instance FromJSON Output where
   parseJSON = withObject "Output" $ \v ->
     Output
       <$> v .: "output_type"
@@ -186,7 +184,7 @@ instance FromJSON (Output a) where
       <*> v .:? "metadata"
       <*> v .:? "execution_count"
       
-instance ToJSON (Output a) where
+instance ToJSON Output where
   toJSON o = object $
     ("output_type" .= (outputType o)) :
     maybe [] (\x -> ["text" .= x]) (outputText o) ++
