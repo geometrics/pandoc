@@ -48,6 +48,7 @@ import qualified Data.Aeson.Types as Aeson
 import qualified Data.Vector as V
 import Control.Applicative ((<|>))
 import Control.Monad (when)
+import qualified Data.ByteString.Base64 as Base64
 
 --- for testing only, to remove:
 import qualified Data.ByteString.Lazy as BL
@@ -214,7 +215,7 @@ pairToMimeData ("text/plain", v) = do
 pairToMimeData ("text/json", v) = return $ ("text/json", JsonData v)
 pairToMimeData (mt, v) = do
   t <- parseJSON v <|> (mconcat <$> parseJSON v)
-  return (mt, BinaryData mt (TE.encodeUtf8 t))
+  return (mt, BinaryData mt (Base64.decodeLenient . TE.encodeUtf8 $ t))
 
 instance ToJSON MimeBundle where
   toJSON = undefined
