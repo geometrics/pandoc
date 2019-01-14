@@ -46,7 +46,7 @@ import Data.Aeson as Aeson
 readIpynb :: PandocMonad m => ReaderOptions -> Text -> m Pandoc
 readIpynb opts t = do
   case eitherDecode (BL.fromStrict $ TE.encodeUtf8 t) of
-    Left err -> error "TODO FIXME"
+    Left err -> throwError $ PandocIpynbDecodingError err
     Right notebook -> notebookToPandoc opts notebook
 
 notebookToPandoc :: PandocMonad m => ReaderOptions -> Notebook -> m Pandoc
