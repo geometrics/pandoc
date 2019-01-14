@@ -165,7 +165,7 @@ instance ToJSON Output where
 type MimeType = Text
 
 data MimeData =
-    BinaryData MimeType ByteString
+    BinaryData ByteString
   | TextualData Text
   | JsonData Value
   deriving (Show, Generic)
@@ -185,11 +185,11 @@ pairToMimeData ("text/plain", v) = do
 pairToMimeData ("text/json", v) = return $ ("text/json", JsonData v)
 pairToMimeData (mt, v) = do
   t <- parseJSON v <|> (mconcat <$> parseJSON v)
-  return (mt, BinaryData mt (Base64.decodeLenient . TE.encodeUtf8 $ t))
+  return (mt, BinaryData (Base64.decodeLenient . TE.encodeUtf8 $ t))
 
 instance ToJSON MimeBundle where
   toJSON (MimeBundle m) =
-    let mimeBundleToValue (BinaryData _ bs) =
+    let mimeBundleToValue (BinaryData bs) =
           toJSON (toLines $ TE.decodeUtf8 $ Base64.joinWith "\n" 64 $
                   Base64.encode bs)
         mimeBundleToValue (JsonData v) = v
@@ -198,3 +198,4 @@ instance ToJSON MimeBundle where
 
 toLines :: Text -> [Text]
 toLines = map (<> "\n") . T.lines
+
