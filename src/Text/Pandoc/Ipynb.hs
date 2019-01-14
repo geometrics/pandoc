@@ -46,9 +46,7 @@ import qualified Data.Text as T
 import Data.ByteString (ByteString)
 import Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
-import qualified Data.Vector as V
 import Control.Applicative ((<|>))
-import Control.Monad (when)
 import qualified Data.ByteString.Base64 as Base64
 import GHC.Generics
 import Data.Char (toLower)
@@ -66,6 +64,8 @@ readNotebookFile fp = do
 writeNotebookFile :: FilePath -> Notebook -> IO ()
 writeNotebookFile fp = BL.writeFile fp . encode
 ---
+
+customOptions :: Aeson.Options
 customOptions = defaultOptions
                 { fieldLabelModifier = drop 2
                 , omitNothingFields = True
@@ -189,7 +189,7 @@ pairToMimeData (mt, v) = do
 
 instance ToJSON MimeBundle where
   toJSON (MimeBundle m) =
-    let mimeBundleToValue (BinaryData mt bs) =
+    let mimeBundleToValue (BinaryData _ bs) =
           toJSON (toLines $ TE.decodeUtf8 $ Base64.joinWith "\n" 64 $
                   Base64.encode bs)
         mimeBundleToValue (JsonData v) = v
@@ -198,16 +198,3 @@ instance ToJSON MimeBundle where
 
 toLines :: Text -> [Text]
 toLines = map (<> "\n") . T.lines
-
-{- -- for pandoc conversion, move:
-valueToMetaValue :: Value -> MetaValue
-valueToMetaValue (Object m) =
-  MetaMap $ M.fromList [ (T.unpack k, valueToMetaValue v)
-                       | (k,v) <- HM.toList m ]
-valueToMetaValue (Array v)  = MetaList (map valueToMetaValue (V.toList v))
-valueToMetaValue (String t) = MetaString (T.unpack t)
-valueToMetaValue (Number n) = MetaString (show n)
-valueToMetaValue (Bool b)   = MetaBool b
-valueToMetaValue Aeson.Null = MetaString mempty
--}
-
