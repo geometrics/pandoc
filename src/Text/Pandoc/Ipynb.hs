@@ -22,7 +22,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 {- |
    Module      : Text.Pandoc.Ipynb
-   Copyright   : Copyright (C) 2006-2018 John MacFarlane
+   Copyright   : Copyright (C) 2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -35,7 +35,16 @@ The format is documented here:
 We only support v4.  To convert an older notebook to v4 use nbconvert:
 @ipython nbconvert --to=notebook testnotebook.ipynb@.
 -}
-module Text.Pandoc.Ipynb ( )
+module Text.Pandoc.Ipynb ( Notebook(..)
+                         , Cell(..)
+                         , Source(..)
+                         , CellType(..)
+                         , OutputType(..)
+                         , Output(..)
+                         , MimeType
+                         , MimeData(..)
+                         , MimeBundle(..)
+                         )
 where
 import Prelude
 import qualified Data.Map as M
@@ -50,6 +59,7 @@ import qualified Data.ByteString.Base64 as Base64
 import GHC.Generics
 import Data.Char (toLower)
 
+{-
 --- for testing only, to remove:
 import qualified Data.ByteString.Lazy as BL
 
@@ -62,7 +72,7 @@ readNotebookFile fp = do
 
 writeNotebookFile :: FilePath -> Notebook -> IO ()
 writeNotebookFile fp = BL.writeFile fp . encode
----
+-}
 
 customOptions :: Aeson.Options
 customOptions = defaultOptions
