@@ -21,7 +21,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
 {- |
-   Module      : Text.Pandoc.Readers.Ipynb
+   Module      : Text.Pandoc.Writers.Ipynb
    Copyright   : Copyright (C) 2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
@@ -29,9 +29,9 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
    Stability   : alpha
    Portability : portable
 
-Ipynb (Jupyter notebook JSON format) reader for pandoc.
+Ipynb (Jupyter notebook JSON format) writer for pandoc.
 -}
-module Text.Pandoc.Readers.Ipynb ( readIpynb )
+module Text.Pandoc.Writers.Ipynb ( writeIpynb )
 where
 import Prelude
 import Text.Pandoc.Options
@@ -43,13 +43,12 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BL
 import Data.Aeson as Aeson
 
-readIpynb :: PandocMonad m => ReaderOptions -> Text -> m Pandoc
-readIpynb opts t = do
-  case eitherDecode (BL.fromStrict $ TE.encodeUtf8 t) of
-    Left err -> error "TODO FIXME"
-    Right notebook -> notebookToPandoc opts notebook
+writeIpynb :: PandocMonad m => WriterOptions -> Pandoc -> m Text
+writeIpynb opts doc = do
+  notebook <- pandocToNotebook opts doc
+  return $ TE.decodeUtf8 $ BL.toStrict $ encode notebook
 
-notebookToPandoc :: PandocMonad m => ReaderOptions -> Notebook -> m Pandoc
-notebookToPandoc opts notebook =
+pandocToNotebook :: PandocMonad m => WriterOptions -> Pandoc -> m Notebook
+pandocToNotebook doc =
   undefined
  
