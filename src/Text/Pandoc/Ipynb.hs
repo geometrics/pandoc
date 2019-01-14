@@ -73,10 +73,10 @@ customOptions = defaultOptions
                 }
 
 data Notebook = Notebook
-  { n_metadata     :: JSONMeta
-  , n_format       :: Maybe Int
-  , n_format_minor :: Maybe Int
-  , n_cells        :: [Cell]
+  { n_metadata       :: JSONMeta
+  , n_nbformat       :: Maybe Int
+  , n_nbformat_minor :: Maybe Int
+  , n_cells          :: [Cell]
   } deriving (Show, Generic)
 
 instance FromJSON Notebook where
@@ -110,8 +110,18 @@ data Cell = Cell
 instance FromJSON Cell where
   parseJSON = genericParseJSON customOptions
 
+-- need manual instance because null execution_count can't
+-- be omitted!
 instance ToJSON Cell where
- toEncoding = genericToEncoding customOptions
+ toEncoding c = pairs $
+      "cell_type" .= c_cell_type c
+   <> "source" .= (c_source c)
+   <> maybe mempty ("metadata" .=) (c_metadata c)
+   <> case c_cell_type c of
+         Code -> "execution_count" .= (c_execution_count c)
+         _ -> mempty
+   <> maybe mempty ("outputs" .=) (c_outputs c)
+   <> maybe mempty ("attachments" .=) (c_attachments c)
 
 data CellType =
     Markdown
@@ -138,12 +148,12 @@ instance ToJSON OutputType where
  toEncoding = genericToEncoding customOptions
 
 data Output = Output{
-    o_output_type      :: OutputType
-  , o_name             :: Maybe Text
-  , o_text             :: Maybe Text
-  , o_data             :: Maybe MimeBundle
-  , o_metadata         :: Maybe (M.Map MimeType JSONMeta)
-  , o_executable_count :: Maybe Int
+    o_output_type     :: OutputType
+  , o_name            :: Maybe Text
+  , o_text            :: Maybe Text
+  , o_data            :: Maybe MimeBundle
+  , o_metadata        :: Maybe (M.Map MimeType JSONMeta)
+  , o_execution_count :: Maybe Int
   } deriving (Show, Generic)
 
 instance FromJSON Output where
